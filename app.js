@@ -49,7 +49,7 @@ function home(){
   <select id="fmt" onchange="fmtChange()">${Object.entries(FORMATS).map(([k,v])=>`<option value="${k}">${v.name}</option>`).join('')}</select>
   <p id="fmtinfo" style="opacity:.8"></p>
   <div id="setbox"><select id="setsel" onchange="addSet(this.value);this.selectedIndex=0"><option value="">Loading sets…</option></select>
-    <div id="chips"></div><small>1 set = all rounds / packs. 2–3 sets = one set per round (Draft), or cycled across the 6 packs (Sealed).</small></div>
+    <div id="chips"></div><small>1 set = all rounds / packs. 2–3 sets = one set per round (Draft), or cycled across the 6 packs (Sealed). “All sets” = chaos: every pack comes from a random set.</small></div>
   <div id="cubebox" style="display:none"><select id="cubesel">${CUBES.map(c=>`<option>${c}</option>`).join('')}</select></div>
   <button onclick="create()">Create room</button>
   <hr><label>Join a room</label><input id="rc" placeholder="Room code"><button onclick="join()">Join room</button></div>`;
@@ -70,11 +70,17 @@ async function loadSets(){
       sets.push(...j.data.filter(s=>!s.digital&&ok.includes(s.set_type)&&s.released_at<=today).sort((a,b)=>b.released_at.localeCompare(a.released_at)));
     }catch(e){}
   }
-  if(window.setsel)setsel.innerHTML='<option value="">+ Add a set…</option>'+sets.map(s=>`<option value="${s.code}">${esc(s.name)} (${s.code.toUpperCase()})</option>`).join('');
+  if(window.setsel)setsel.innerHTML='<option value="">+ Add a set…</option><option value="*">★ All sets (random set for every pack)</option>'+sets.map(s=>`<option value="${s.code}">${esc(s.name)} (${s.code.toUpperCase()})</option>`).join('');
 }
-function addSet(c){if(!c)return;if(picked.length>=3)return alert('Up to 3 sets');picked.push(c);renderChips()}
+function addSet(c){
+  if(!c)return;
+  if(c==='*'){picked=['*'];return renderChips()}                       // "All sets" replaces any individual choices
+  if(picked.includes('*'))return alert('"All sets" is selected. Remove it first if you want to choose individual sets.');
+  if(picked.length>=3)return alert('Up to 3 sets');
+  picked.push(c);renderChips();
+}
 function renderChips(){
-  chips.innerHTML=picked.length?picked.map((c,i)=>`<span class="chip">${i+1}. ${c.toUpperCase()} <a onclick="picked.splice(${i},1);renderChips()">✕</a></span>`).join(''):'<small>No sets chosen yet</small>';
+  chips.innerHTML=picked.length?picked.map((c,i)=>`<span class="chip">${c==='*'?'★ All sets (random per pack)':`${i+1}. ${c.toUpperCase()}`} <a onclick="picked.splice(${i},1);renderChips()">✕</a></span>`).join(''):'<small>No sets chosen yet</small>';
 }
 function getName(){
   const n=(nmsel.value==='__new'?nmnew.value:nmsel.value).trim();
@@ -153,7 +159,7 @@ const log=(g,m)=>{g.log.push(m);g.log=g.log.slice(-40)};
 function render(){
   if(!R)return;
   zoom.style.display='none';
-  const f=R.format||'draft',label=f==='cube'?'Cube: '+R.set_code.toUpperCase():R.set_code.toUpperCase().split(',').join(' + ');
+  const f=R.format||'draft',label=f==='cube'?'Cube: '+R.set_code.toUpperCase():R.set_code==='*'?'All sets (chaos)':R.set_code.toUpperCase().split(',').join(' + ');
   const views={lobby:lobbyV,draft:draftV,play:playV};
   $app.innerHTML=`<div class="bar">Room <b>${R.code}</b> · ${FORMATS[f].name} · <b>${label}</b> · ${esc(me.name)}
     <span style="flex:1"></span><button onclick="leave()">Leave</button></div>`+views[R.status]();
@@ -176,6 +182,20 @@ async function fetchQ(q){
 async function fetchSet(code){const a=await fetchQ('e:'+code);if(!a)return null;const b=a.filter(c=>c.booster);return b.length?b:a}
 const tiers=cards=>{const by=r=>cards.filter(c=>c.rarity===r&&!c.type_line.startsWith('Basic')).map(slim);return{C:by('common'),U:by('uncommon'),R:by('rare'),M:by('mythic')}};
 const makePack=t=>shuffle([...sample(Math.random()<1/8&&t.M.length?t.M:t.R.length?t.R:t.M,1),...sample(t.U,3),...sample(t.C,10)]);
+async function chaosSets(need){                    // pick random real booster sets and load them
+  const j=await (await fetch('https://api.scryfall.com/sets')).json();
+  const today=new Date().toISOString().slice(0,10),ok=['core','expansion','masters','draft_innovation'];
+  const pool=shuffle(j.data.filter(s=>!s.digital&&ok.includes(s.set_type)&&s.released_at<=today&&(s.card_count||0)>=100));
+  const T={},codes=[];
+  for(const s of pool){
+    if(codes.length>=need)break;
+    go.textContent=`Chaos draft: loading sets (${codes.length+1}/${need}) — ${s.name}…`;
+    const cards=await fetchSet(s.code);if(!cards)continue;
+    const t=tiers(cards);if(t.C.length<10||t.U.length<3||t.R.length+t.M.length<1)continue;   // skip sets that can't make a normal pack
+    T[s.code]=t;codes.push(s.code);
+  }
+  return{T,codes};
+}
 async function start(){
   go.disabled=true;const f=R.format||'draft',n=P.length;
   if(f==='cube'){
@@ -188,8 +208,14 @@ async function start(){
     await db.from('packs').insert(rows);
     return db.from('rooms').update({status:'draft',round:1}).eq('code',R.code);
   }
-  const codes=R.set_code.split(','),T={};
-  for(const code of new Set(codes)){
+  const chaos=R.set_code==='*';
+  let codes=R.set_code.split(','),T={};
+  if(chaos){
+    ({T,codes}=await chaosSets(Math.min(10,(f==='sealed'?6:3)*n)));
+    if(codes.length<2){alert('Could not load enough sets from Scryfall for a chaos draft. Please try again.');return render()}
+  }
+  const setFor=i=>chaos?codes[Math.random()*codes.length|0]:codes[i%codes.length];
+  for(const code of chaos?[]:new Set(codes)){
     go.textContent=`Fetching ${code.toUpperCase()} from Scryfall…`;
     const pool=await fetchSet(code);
     if(!pool||!pool.length){alert(`Scryfall found no cards for set code "${code}"`);return render()}
@@ -197,12 +223,12 @@ async function start(){
   }
   if(f==='sealed'){
     const rows=[];
-    for(const p of P)for(let k=0;k<6;k++)makePack(T[codes[k%codes.length]]).forEach(card=>rows.push({room_code:R.code,player_id:p.id,card}));
+    for(const p of P)for(let k=0;k<6;k++)makePack(T[setFor(k)]).forEach(card=>rows.push({room_code:R.code,player_id:p.id,card}));
     await db.from('picks').insert(rows);
     return db.from('rooms').update({status:'play'}).eq('code',R.code);
   }
   const rows=[];
-  for(let rd=1;rd<=3;rd++)for(let s=0;s<n;s++)rows.push({room_code:R.code,round:rd,holder_seat:s,cards:makePack(T[codes[(rd-1)%codes.length]])});
+  for(let rd=1;rd<=3;rd++)for(let s=0;s<n;s++)rows.push({room_code:R.code,round:rd,holder_seat:s,cards:makePack(T[setFor(rd-1)])});
   await db.from('packs').insert(rows);
   await db.from('rooms').update({status:'draft',round:1}).eq('code',R.code);
 }
