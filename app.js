@@ -1,4 +1,4 @@
-const SUPABASE_URL='https://YOUR-PROJECT.supabase.co', SUPABASE_KEY='YOUR-ANON-KEY';
+const SUPABASE_URL='https://eaqkrtybkssrrtarlyap.supabase.co', SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVhcWtydHlia3NzcnJ0YXJseWFwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ2MDU2MDgsImV4cCI6MjExMDE4MTYwOH0.9cAe5p0G7zCS_9cG6_aIkdVlgS3XjYR1mfa8ffgpd2k';
 const db=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 const $app=document.getElementById('app');
 let me=JSON.parse(localStorage.getItem('mtg')||'null'),R=null,P=[],K=[],X=[],B=[],ch=null,timer=null;
