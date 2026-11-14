@@ -37,8 +37,24 @@ button:disabled{opacity:.5}
 .t{width:42px}
 .tap{transform:rotate(90deg);margin:0 18px}
 #zoom{position:fixed;top:50%;transform:translateY(-50%);width:320px;border-radius:14px;box-shadow:0 8px 30px #000a;pointer-events:none;display:none;z-index:99}
+
+.w{position:relative;display:inline-block}
+.bd{position:absolute;top:4px;left:4px;background:#000c;color:#fff;font-style:normal;padding:1px 6px;border-radius:8px;font-size:12px;pointer-events:none}
+.bd.a,.bd.z{left:auto;right:4px}
+.sm{padding:2px 8px;font-size:12px;margin:1px}
+.ph{display:inline-block;padding:3px 10px;margin:2px;border-radius:14px;border:1px solid var(--line);opacity:.55}
+.ph.on{opacity:1;background:var(--acc);color:#161208;font-weight:700}
+.active{box-shadow:0 0 0 2px var(--acc)}
+.lost{opacity:.45}
+.log{font-size:13px;opacity:.8;max-height:110px;overflow:auto}
+#menu{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:120}
+.mb{background:#1b1e26;border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:6px;min-width:240px}
+.mb button{margin:0}
+.mb .ghost{background:#2a2f37;color:var(--fg)}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#7a1f1f;color:#fff;padding:10px 18px;border-radius:10px;z-index:130;display:none;max-width:90vw}
 </style></head>
 <body><main id="app"></main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
 <script src="app.js"></script>
 </body></html>
