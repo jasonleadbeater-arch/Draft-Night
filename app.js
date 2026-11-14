@@ -165,9 +165,23 @@ async function resetB(){await db.from('boards').delete().eq('room_code',me.code)
 /* ---------- hover zoom ---------- */
 const zoom=document.createElement('img');zoom.id='zoom';document.body.appendChild(zoom);
 const isCard=e=>e.target.tagName==='IMG'&&e.target.classList.contains('c');
-const place=e=>{const left=e.clientX>innerWidth/2;zoom.style.left=left?'16px':'auto';zoom.style.right=left?'auto':'16px'};
-document.addEventListener('mouseover',e=>{if(isCard(e)){zoom.src=e.target.src;zoom.style.display='block';place(e)}});
+const place=e=>{const left=e.clientX>innerWidth/2;zoom.style.left=left?'16px':'auto';zoom.style.right=left?'auto':'16px';zoom.style.transform='translateY(-50%)'};
+let lastT=0,tmr,sx,sy,held=false;
+document.addEventListener('mouseover',e=>{if(isCard(e)&&Date.now()-lastT>800){zoom.src=e.target.src;zoom.style.display='block';place(e)}});
 document.addEventListener('mousemove',e=>{if(zoom.style.display==='block')place(e)});
 document.addEventListener('mouseout',e=>{if(isCard(e))zoom.style.display='none'});
+
+/* press-and-hold to zoom on touch screens */
+document.addEventListener('touchstart',e=>{
+  lastT=Date.now();held=false;clearTimeout(tmr);
+  if(!isCard(e))return;
+  const src=e.target.src;sx=e.touches[0].clientX;sy=e.touches[0].clientY;
+  tmr=setTimeout(()=>{held=true;zoom.src=src;Object.assign(zoom.style,{display:'block',left:'50%',right:'auto',transform:'translate(-50%,-50%)'});navigator.vibrate?.(10)},350);
+},{passive:true});
+document.addEventListener('touchmove',e=>{if(Math.hypot(e.touches[0].clientX-sx,e.touches[0].clientY-sy)>10)clearTimeout(tmr)},{passive:true});
+['touchend','touchcancel'].forEach(ev=>document.addEventListener(ev,()=>{
+  lastT=Date.now();clearTimeout(tmr);zoom.style.display='none';if(held)setTimeout(()=>held=false,500)}));
+// after a long-press, swallow the click / context menu so it doesn't play, pick or discard the card
+['click','contextmenu'].forEach(ev=>document.addEventListener(ev,e=>{if(held){e.preventDefault();e.stopPropagation()}},true));
 
 me?boot():home();
