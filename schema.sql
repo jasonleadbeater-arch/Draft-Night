@@ -22,3 +22,6 @@ create policy "open" on profiles for all using (true) with check (true);
 -- Rules / formats update (run this if you already ran the rest):
 alter table rooms add column if not exists format text default 'draft';
 alter table rooms add column if not exists game jsonb;
+
+-- Forge network-play handoff (host address shared with the room):
+alter table rooms add column if not exists forge jsonb;
