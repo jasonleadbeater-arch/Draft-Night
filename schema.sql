@@ -13,3 +13,8 @@ do $$ declare t text; begin
     execute format('alter publication supabase_realtime add table %I', t);
   end loop;
 end $$;
+
+-- Saved player names (added later; safe to run on its own if you already ran the rest)
+create table if not exists profiles (name text primary key, created_at timestamptz default now());
+alter table profiles enable row level security;
+create policy "open" on profiles for all using (true) with check (true);
