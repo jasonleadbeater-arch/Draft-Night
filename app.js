@@ -27,8 +27,8 @@ const strip=c=>{const {tap,atk,sick,n,...r}=c;return r};
 const myPack=()=>K.find(k=>k.round===R.round&&k.holder_seat===me.seat&&k.cards.length);
 const tile=(c,cls,at)=>`<span class="w"><img class="c ${cls}${c.tap?' tap':''}" src="${c.img}" title="${esc(c.name)}" ${at}>${c.n?`<i class="bd">${c.n>0?'+':''}${c.n}/${c.n>0?'+':''}${c.n}</i>`:''}${c.atk?'<i class="bd a">⚔</i>':c.sick?'<i class="bd z">💤</i>':''}</span>`;
 const imgs=(arr,cls,at=()=>'')=>arr.map((c,i)=>tile(c,cls,at(c,i))).join('');
-function toast(m){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}
-  t.textContent=m;t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',3500)}
+function toast(m,good){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}
+  t.style.background=good?'#1f6b3a':'#7a1f1f';t.textContent=m;t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',3500)}
 function openMenu(title,items){
   MENU=items;let d=document.getElementById('menu');
   if(!d){d=document.createElement('div');d.id='menu';d.onclick=e=>{if(e.target===d)closeMenu()};document.body.appendChild(d)}
@@ -414,13 +414,51 @@ async function attack(i){
   await mine(s=>{const x=s.bf[i];x.atk=true;if(!hasKw(x,'Vigilance'))x.tap=true});
 }
 async function mv(from,i,to){
-  await mine(s=>{const c=strip(s[from].splice(i,1)[0]);
+  await mine(s=>{const raw=s[from].splice(i,1)[0];
+    if(raw.tok&&from==='bf')return;                       // a token that leaves the battlefield ceases to exist
+    const c=strip(raw);
     if(to==='lib')s.lib.unshift(c);else if(to==='bf')s.bf.push({...c,sick:isCreature(c)});else s[to].push(c)});
 }
 const life=(pid,d)=>edit(pid,s=>{s.life+=d});
 const pois=pid=>edit(pid,s=>{s.poison++});
 const drawEffect=()=>mine(s=>{if(s.lib.length)s.hand.push(s.lib.shift());else s.empty=true});
 const concede=()=>{if(confirm('Concede the game?'))mine(s=>{s.lost=true})};
+
+/* ---------- token creator (Scryfall) ---------- */
+const TOKEN_QUICK=['Treasure','Clue','Food','Blood','Soldier','Zombie','Goblin','Spirit','Elemental','Beast','Thopter','Human'];
+let TOKRES=[];
+function openTokens(){
+  const s=stOf(me.id);
+  if(!R.game||R.game.winner||s?.lost)return toast('Tokens can be created while a game is in progress');
+  let d=document.getElementById('tok');
+  if(!d){d=document.createElement('div');d.id='tok';d.onclick=e=>{if(e.target===d)closeTok()};document.body.appendChild(d)}
+  d.innerHTML=`<div class="mb"><b>Create a token</b>
+    <div><input id="tq" placeholder="Search tokens, e.g. goblin" onkeydown="if(event.key==='Enter')tokSearch()">
+    <button class="sm" onclick="tokSearch()">Search</button> Quantity <input id="tn" type="number" min="1" max="20" value="1" style="width:70px;min-width:0"></div>
+    <div>${TOKEN_QUICK.map(n=>`<button class="sm ghost" onclick="tokSearch('${n}')">${n}</button>`).join('')}</div>
+    <div id="tres" class="grid"><small>Pick a quick token or search by name. Click a token to put it onto your battlefield.</small></div>
+    <button class="ghost" onclick="closeTok()">Close</button></div>`;
+  d.style.display='flex';
+}
+const closeTok=()=>{document.getElementById('tok').style.display='none'};
+async function tokSearch(n){
+  if(n!==undefined)tq.value=n;
+  const q=tq.value.trim().replace(/["\\]/g,'');
+  tres.textContent='Searching Scryfall…';TOKRES=[];
+  try{
+    const r=await fetch(`https://api.scryfall.com/cards/search?unique=cards&include_extras=true&order=name&q=${encodeURIComponent(('t:token '+q).trim())}`);
+    if(r.ok)TOKRES=(await r.json()).data.filter(c=>img(c)).slice(0,30);
+  }catch(e){tres.textContent='Could not reach Scryfall';return}
+  tres.innerHTML=TOKRES.length?TOKRES.map((c,i)=>`<div style="width:110px;text-align:center"><img class="c s" src="${img(c)}" title="${esc(c.name)}" onclick="addToken(${i})"><br>
+    <small>${esc(c.name)}${c.power?` ${esc(c.power)}/${esc(c.toughness)}`:''}${c.colors?.length?' · '+c.colors.join(''):''}</small></div>`).join(''):'No tokens found — try a different name';
+}
+async function addToken(i){
+  const c=TOKRES[i];if(!c)return;
+  const n=Math.max(1,Math.min(20,+tn.value||1)),base={...slim(c),tok:true};
+  await mine(s=>{for(let k=0;k<n;k++)s.bf.push({...base,sick:isCreature(base)})});
+  await game(g=>{log(g,`${me.name} creates ${n>1?n+'× ':''}${c.name} token`)});
+  toast(`Added ${n}× ${c.name} to your battlefield`,true);
+}
 
 function handMenu(i){
   const c=stOf(me.id).hand[i];if(!c)return;
@@ -430,8 +468,9 @@ function bfMenu(i){
   const c=stOf(me.id).bf[i];if(!c)return;
   const it=[[c.tap?'Untap':'Tap',()=>mine(s=>{s.bf[i].tap=!s.bf[i].tap})]];
   if(isCreature(c))it.push(['Attack',()=>attack(i)]);
-  it.push(['+1/+1 counter',()=>mine(s=>{s.bf[i].n=(s.bf[i].n||0)+1})],['−1/−1 counter',()=>mine(s=>{s.bf[i].n=(s.bf[i].n||0)-1})],
-    ['To graveyard',()=>mv('bf',i,'gy')],['Exile',()=>mv('bf',i,'ex')],['Return to hand',()=>mv('bf',i,'hand')],['Top of library',()=>mv('bf',i,'lib')]);
+  it.push(['+1/+1 counter',()=>mine(s=>{s.bf[i].n=(s.bf[i].n||0)+1})],['−1/−1 counter',()=>mine(s=>{s.bf[i].n=(s.bf[i].n||0)-1})]);
+  if(c.tok)it.push(['Remove token',()=>mv('bf',i,'gy')]);
+  else it.push(['To graveyard',()=>mv('bf',i,'gy')],['Exile',()=>mv('bf',i,'ex')],['Return to hand',()=>mv('bf',i,'hand')],['Top of library',()=>mv('bf',i,'lib')]);
   openMenu(c.name,it);
 }
 function zoneMenu(z,i){
@@ -463,7 +502,7 @@ function panel(p){
    · Library ${s.lib.length} · Hand ${s.hand.length} · Graveyard ${s.gy.length} · Exile ${s.ex.length}
    <div class="grid">${imgs(s.bf,'s',(c,i)=>own?`onclick="bfMenu(${i})"`:'')}</div>
    ${s.gy.length?'<small>Graveyard</small>'+zc(s.gy,'gy'):''}${s.ex.length?'<small>Exile</small>'+zc(s.ex,'ex'):''}
-   ${own&&!s.lost?`<div><button class="sm" onclick="drawEffect()">Draw a card (effect)</button><button class="sm" onclick="mine(s=>shuffle(s.lib))">Shuffle library</button><button class="sm" onclick="concede()">Concede</button></div>`:''}</div>`;
+   ${own&&!s.lost?`<div><button class="sm" onclick="drawEffect()">Draw a card (effect)</button><button class="sm" onclick="openTokens()">Create token</button><button class="sm" onclick="mine(s=>shuffle(s.lib))">Shuffle library</button><button class="sm" onclick="concede()">Concede</button></div>`:''}</div>`;
 }
 
 /* ---------- hover / press-and-hold zoom ---------- */
