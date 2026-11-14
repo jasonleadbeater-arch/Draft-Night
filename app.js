@@ -12,7 +12,7 @@ let me=JSON.parse(localStorage.getItem('mtg')||'null'),R=null,P=[],K=[],X=[],B=[
 
 /* ---------- helpers ---------- */
 const img=c=>c.image_uris?.normal||c.card_faces?.[0]?.image_uris?.normal||'';
-const slim=c=>({id:c.id,name:c.name,img:img(c),r:c.rarity,t:c.type_line,kw:c.keywords||[]});
+const slim=c=>({id:c.id,name:c.name,img:img(c),r:c.rarity,t:c.type_line,kw:c.keywords||[],l:c.layout});
 const shuffle=a=>{for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]}return a};
 const sample=(a,k)=>shuffle([...a]).slice(0,k);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -231,7 +231,7 @@ const playV=()=>stOf(me.id)?(R.game?gameV():pregame()):builder();
 function builder(){
   const mp=X.filter(x=>x.player_id===me.id),deck=mp.filter(x=>x.in_deck),side=mp.filter(x=>!x.in_deck);
   const tog=x=>`onclick="toggle('${x.id}',${!x.in_deck})"`;
-  return `<div class="box"><h3>Deck (${deck.length} / ${MIN_DECK} minimum) — click to move to sideboard</h3>
+  return `<div class="box"><h3>Deck (${deck.length} / ${MIN_DECK} minimum) — click to move to sideboard</h3>${exportBar()}
     ${['Plains','Island','Swamp','Mountain','Forest'].map(l=>`<button onclick="land('${l}')">+${l}</button>`).join('')}
     <button onclick="ready()">Ready — shuffle &amp; draw 7</button>
     <div class="grid">${deck.map(x=>tile(x.card,'s',tog(x))).join('')}</div></div>
@@ -252,10 +252,74 @@ async function ready(){
 }
 const backToBuilder=async()=>{await db.from('boards').delete().eq('room_code',me.code).eq('player_id',me.id);load()};
 
+/* ---------- export to Forge (.dck) ---------- */
+const forgeName=c=>(c.l==='split'||c.l==='aftermath')?c.name:c.name.split(' // ')[0];   // Forge lists double-faced/adventure cards by front face
+const safe=s=>String(s).replace(/[\\/:*?"<>|\r\n]/g,'_').trim()||'deck';
+const tally=l=>{const m=new Map();for(const x of l){const n=forgeName(x.card);m.set(n,(m.get(n)||0)+1)}return[...m].sort((a,b)=>a[0].localeCompare(b[0])).map(([n,k])=>`${k} ${n}`).join('\n')};
+function deckText(p){
+  const mp=X.filter(x=>x.player_id===p.id);
+  return `[metadata]\nName=${safe(p.name)} (${R.code})\n[Main]\n${tally(mp.filter(x=>x.in_deck))}\n[Sideboard]\n${tally(mp.filter(x=>!x.in_deck))}\n`;
+}
+const podFiles=()=>P.map(p=>({p,n:X.filter(x=>x.player_id===p.id&&x.in_deck).length})).filter(o=>o.n>0)
+  .map(o=>({name:`${safe(o.p.name)} - ${R.code}.dck`,text:deckText(o.p),n:o.n,who:o.p.name}));
+const crcT=(()=>{const t=[];for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+const crc32=b=>{let c=0xFFFFFFFF;for(const x of b)c=crcT[(c^x)&255]^(c>>>8);return(c^0xFFFFFFFF)>>>0};
+function makeZip(files){                                   // minimal "stored" (uncompressed) zip writer
+  const enc=new TextEncoder(),u16=n=>[n&255,(n>>8)&255],u32=n=>[n&255,(n>>8)&255,(n>>16)&255,(n>>>24)&255];
+  const body=[],cd=[];let off=0;
+  for(const f of files){
+    const nb=enc.encode(f.name),d=enc.encode(f.text),crc=crc32(d);
+    const lh=new Uint8Array([0x50,0x4b,3,4,...u16(20),...u16(0x800),...u16(0),...u16(0),...u16(0x21),...u32(crc),...u32(d.length),...u32(d.length),...u16(nb.length),...u16(0)]);
+    body.push(lh,nb,d);
+    cd.push(new Uint8Array([0x50,0x4b,1,2,...u16(20),...u16(20),...u16(0x800),...u16(0),...u16(0),...u16(0x21),...u32(crc),...u32(d.length),...u32(d.length),...u16(nb.length),...u16(0),...u16(0),...u16(0),...u16(0),...u32(0),...u32(off)]),nb);
+    off+=lh.length+nb.length+d.length;
+  }
+  const cdSize=cd.reduce((s,x)=>s+x.length,0);
+  const end=new Uint8Array([0x50,0x4b,5,6,...u16(0),...u16(0),...u16(files.length),...u16(files.length),...u32(cdSize),...u32(off),...u16(0)]);
+  const parts=[...body,...cd,end],out=new Uint8Array(parts.reduce((s,x)=>s+x.length,0));
+  let o=0;for(const x of parts){out.set(x,o);o+=x.length}return out;
+}
+function download(name,data,type){
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type}));a.download=name;
+  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+const FORGE_README=`Draft Night -> Forge
+====================
+1. Copy the .dck files into Forge's decks/constructed folder:
+   Windows: %APPDATA%\\Forge\\decks\\constructed
+   macOS:   ~/Library/Application Support/Forge/decks/constructed
+   Linux:   ~/.forge/decks/constructed
+   (In Forge, Preferences has an "Open User Folder" button that shows where this is.)
+2. Restart Forge (or reopen the Constructed screen) and pick your deck from the deck list.
+3. Each player loads their own deck. To play together, use Forge's online multiplayer
+   (one player hosts a game, the others join).
+Cards are listed by name only, so Forge uses its default printing of each card.
+`;
+function exportPod(){
+  const f=podFiles();if(!f.length)return toast('No decks built yet');
+  const short=f.filter(x=>x.n<MIN_DECK).map(x=>`${x.who} (${x.n})`),missing=P.filter(p=>!f.some(x=>x.who===p.name)).map(p=>p.name);
+  download(`${R.code}-forge-pod.zip`,makeZip([...f.map(({name,text})=>({name,text})),{name:'README.txt',text:FORGE_README}]),'application/zip');
+  const warn=[short.length&&`under ${MIN_DECK} cards: ${short.join(', ')}`,missing.length&&`no deck yet: ${missing.join(', ')}`].filter(Boolean).join(' · ');
+  if(warn)toast('Exported, but '+warn);
+}
+function exportMine(){
+  const f=podFiles().find(x=>x.who===me.name);if(!f)return toast('Add cards to your deck first');
+  download(f.name,f.text,'text/plain');
+  if(f.n<MIN_DECK)toast(`Note: your deck has only ${f.n} cards`);
+}
+async function copyList(){
+  const t=tally(X.filter(x=>x.player_id===me.id&&x.in_deck));
+  if(!t)return toast('Add cards to your deck first');
+  try{await navigator.clipboard.writeText(t);toast('Deck list copied')}catch(e){toast('Could not copy — use the .dck download instead')}
+}
+const exportBar=()=>`<div style="margin:6px 0"><b>Play it in Forge:</b>
+  <button class="sm" onclick="exportMine()">⬇ My deck (.dck)</button><button class="sm" onclick="exportPod()">⬇ Whole pod (.zip)</button>
+  <button class="sm" onclick="copyList()">Copy list</button></div>`;
+
 /* ---------- opening hands (London mulligan) ---------- */
 function pregame(){
   const s=stOf(me.id);
-  const others=`<div class="box"><b>Players</b>${P.map(p=>`<div>${esc(p.name)}: ${stOf(p.id)?.kept?'✅ kept':stOf(p.id)?'deciding…':'building deck…'}</div>`).join('')}</div>`;
+  const others=`<div class="box">${exportBar()}<b>Players</b>${P.map(p=>`<div>${esc(p.name)}: ${stOf(p.id)?.kept?'✅ kept':stOf(p.id)?'deciding…':'building deck…'}</div>`).join('')}</div>`;
   if(s.kept)return `<div class="box"><h3>Waiting for everyone to keep their hand…</h3></div>`+others;
   return `<div class="box"><h3>Opening hand${s.mull?` (mulligan ${s.mull})`:''}</h3>
    ${s.pend>0?`<p>Choose <b>${s.pend}</b> card(s) to put on the bottom of your library — click them.</p>`
