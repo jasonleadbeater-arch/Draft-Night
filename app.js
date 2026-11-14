@@ -157,6 +157,7 @@ function render(){
   const views={lobby:lobbyV,draft:draftV,play:playV};
   $app.innerHTML=`<div class="bar">Room <b>${R.code}</b> · ${FORMATS[f].name} · <b>${label}</b> · ${esc(me.name)}
     <span style="flex:1"></span><button onclick="leave()">Leave</button></div>`+views[R.status]();
+  const fd=document.getElementById('forge');if(fd&&fd.style.display==='flex')renderForge();
 }
 const lobbyV=()=>`<div class="box"><h3>Lobby — share code <b>${R.code}</b></h3>
   <p>${FORMATS[R.format||'draft'].info}</p>
@@ -314,7 +315,57 @@ async function copyList(){
 }
 const exportBar=()=>`<div style="margin:6px 0"><b>Play it in Forge:</b>
   <button class="sm" onclick="exportMine()">⬇ My deck (.dck)</button><button class="sm" onclick="exportPod()">⬇ Whole pod (.zip)</button>
-  <button class="sm" onclick="copyList()">Copy list</button></div>`;
+  <button class="sm" onclick="copyList()">Copy list</button>
+  <button class="sm" onclick="openForge()">🔥 Play in Forge</button></div>`;
+
+/* ---------- hand the pod to Forge's network play ---------- */
+let forgeKey='';
+function openForge(){
+  let d=document.getElementById('forge');
+  if(!d){d=document.createElement('div');d.id='forge';d.onclick=e=>{if(e.target===d)closeForge()};document.body.appendChild(d)}
+  d.style.display='flex';forgeKey='';renderForge();
+}
+const closeForge=()=>{document.getElementById('forge').style.display='none'};
+function renderForge(){
+  const d=document.getElementById('forge'),f=R.forge||null,key=JSON.stringify(f);
+  if(key===forgeKey&&d.innerHTML)return;            // don't wipe what someone is typing unless the shared data changed
+  forgeKey=key;
+  const hostP=f&&P.find(p=>p.id===f.host),isHost=f&&f.host===me.id;
+  const body=f?`<div class="box" style="margin:0"><b>Forge host:</b> ${esc(hostP?.name||'?')} · <code>${esc(f.addr)}</code>
+      <button class="sm" onclick="copyForge()">Copy address</button>${f.ver?` · Forge ${esc(f.ver)}`:''}
+      <div style="margin:6px 0">${P.map(p=>`<div>${esc(p.name)}: ${f.joined?.[p.id]?'✅ in the Forge lobby':'… not yet'}</div>`).join('')}</div>
+      <button class="sm" onclick="forgeJoined()">${f.joined?.[me.id]?"I'm not in the lobby":"I'm in the Forge lobby"}</button>
+      ${isHost?'<button class="sm ghost" onclick="forgeClear()">Stop sharing my address</button>':''}</div>`
+    :`<div class="box" style="margin:0"><b>Hosting? Share your Forge address with the room</b><br>
+      <input id="fa" placeholder="IP:port, e.g. 192.168.1.50:36743"><input id="fv" placeholder="Forge version (optional)">
+      <button class="sm" onclick="forgeShare()">Share with the room</button>
+      <br><small>Nobody is hosting yet. Whoever hosts the Forge game does this step.</small></div>`;
+  d.innerHTML=`<div class="mb"><b>Play this pod in Forge (network play)</b>
+    <small>Forge is a separate app (desktop or mobile) with its own rules engine. Draft Night gets everyone's decks and the host's address to it. Everyone must run the same Forge version.</small>
+    <ol>
+     <li><b>Everyone:</b> download your deck (<code>.dck</code>) and put it in Forge's <code>decks/constructed</code> folder.</li>
+     <li><b>Host:</b> in Forge choose Online Multiplayer › Lobby (mobile: Classic Mode › Play Online), then <b>Host a Game</b>. Allow Forge through your firewall. For remote friends let Forge open port 36743 via UPnP, forward that TCP port on your router, or use a VPN such as ZeroTier.</li>
+     <li><b>Host:</b> use "Copy Local URL" (same Wi-Fi) or "Copy External URL" (internet) in the Forge lobby and paste it below.</li>
+     <li><b>Everyone else:</b> Online Multiplayer › Lobby › <b>Join a Game</b> and paste the host's address.</li>
+     <li>Pick your deck, switch on <b>Ready</b>, and the host starts the match.</li></ol>
+    <div><button class="sm" onclick="exportMine()">⬇ My deck (.dck)</button><button class="sm" onclick="exportPod()">⬇ Whole pod (.zip)</button></div>
+    ${body}
+    <small>⚠ The address is saved in this room's database record, so anyone with the room code could see it. A VPN/private address is safer than your home IP — and use "Stop sharing" when you're finished.</small>
+    <button class="ghost" onclick="closeForge()">Close</button></div>`;
+}
+async function setForge(v){await db.from('rooms').update({forge:v}).eq('code',R.code);R.forge=v;render()}
+async function forgeShare(){
+  let a=fa.value.trim();
+  if(!/^[\w.\-]+(:\d{1,5})?$/.test(a)||/^(localhost|127\.)/i.test(a))return toast('Enter the host address as IP:port, e.g. 192.168.1.50:36743 (not localhost)');
+  if(!a.includes(':'))a+=':36743';
+  await setForge({host:me.id,addr:a,ver:fv.value.trim().slice(0,40),joined:{[me.id]:true}});
+}
+async function forgeJoined(){
+  const {data}=await db.from('rooms').select('forge').eq('code',R.code).single(),f=data.forge;if(!f)return;
+  f.joined={...f.joined,[me.id]:!f.joined?.[me.id]};await setForge(f);
+}
+async function forgeClear(){if(R.forge?.host===me.id)await setForge(null)}
+async function copyForge(){try{await navigator.clipboard.writeText(R.forge.addr);toast('Address copied',true)}catch(e){toast('Could not copy — select the address manually')}}
 
 /* ---------- opening hands (London mulligan) ---------- */
 function pregame(){
