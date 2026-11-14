@@ -1,23 +1,42 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MTG Draft</title>
+<title>Draft Night</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&display=swap">
 <style>
-:root{--bg:#14161a;--fg:#e8e8e8;--card:#1f2329;--acc:#c9a227}
+:root{--fg:#ece6d6;--card:rgba(18,20,27,.82);--acc:#c9a227;--line:rgba(201,162,39,.35)}
 *{box-sizing:border-box}
-body{margin:0;font:15px system-ui,sans-serif;background:var(--bg);color:var(--fg)}
+body{margin:0;font:15px system-ui,sans-serif;color:var(--fg);min-height:100vh;background:#0b0d12;
+ background-image:
+  radial-gradient(ellipse at 8% 0%,rgba(14,104,171,.30),transparent 45%),
+  radial-gradient(ellipse at 92% 0%,rgba(211,32,42,.24),transparent 45%),
+  radial-gradient(ellipse at 0% 100%,rgba(0,115,62,.26),transparent 45%),
+  radial-gradient(ellipse at 100% 100%,rgba(107,91,123,.32),transparent 45%),
+  radial-gradient(ellipse at 50% 45%,rgba(249,245,215,.06),transparent 60%);
+ background-attachment:fixed}
+body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+ background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Cg fill-opacity='.22'%3E%3Ccircle cx='100' cy='45' r='30' fill='%23f9f5d7'/%3E%3Ccircle cx='152.3' cy='83' r='30' fill='%230e68ab'/%3E%3Ccircle cx='132.3' cy='144.5' r='30' fill='%236b5b7b'/%3E%3Ccircle cx='67.7' cy='144.5' r='30' fill='%23d3202a'/%3E%3Ccircle cx='47.7' cy='83' r='30' fill='%2300733e'/%3E%3C/g%3E%3Ccircle cx='100' cy='100' r='55' fill='none' stroke='%23c9a227' stroke-opacity='.3' stroke-width='.6'/%3E%3Ccircle cx='100' cy='100' r='92' fill='none' stroke='%23c9a227' stroke-opacity='.15' stroke-width='.4'/%3E%3C/svg%3E") center/min(95vmin,900px) no-repeat}
 main{max-width:1200px;margin:auto;padding:12px}
-.bar{display:flex;gap:12px;align-items:center;padding:8px 12px;background:var(--card);border-radius:8px;margin-bottom:12px}
-.box{background:var(--card);padding:12px;border-radius:8px;margin-bottom:12px}
-input,button{padding:8px 12px;border-radius:6px;border:1px solid #444;background:#2a2f37;color:var(--fg);margin:3px}
-button{cursor:pointer;background:var(--acc);color:#111;border:0;font-weight:600}
+h1,h2,h3,h4{font-family:Cinzel,Georgia,serif;letter-spacing:.04em;margin:.3em 0}
+h1{font-size:2.2em;text-align:center;color:var(--acc);text-shadow:0 0 18px rgba(201,162,39,.35)}
+.hero{max-width:520px;margin:6vh auto}
+.hero p,.hero small{opacity:.8}
+.bar{display:flex;gap:12px;align-items:center;padding:8px 14px;background:var(--card);border:1px solid var(--line);border-radius:10px;margin-bottom:12px;backdrop-filter:blur(6px)}
+.box{background:var(--card);border:1px solid var(--line);padding:14px;border-radius:10px;margin-bottom:12px;backdrop-filter:blur(6px)}
+label{display:block;margin:10px 3px 0;font-family:Cinzel,Georgia,serif;color:var(--acc)}
+hr{border:0;border-top:1px solid var(--line);margin:16px 0}
+input,select,button{padding:8px 12px;border-radius:6px;border:1px solid #4a4f58;background:#242830;color:var(--fg);margin:3px;font:inherit}
+select,input{min-width:220px}
+button{cursor:pointer;background:linear-gradient(#d9b43a,#a8861c);color:#161208;border:0;font-weight:700}
 button:disabled{opacity:.5}
+.chip{display:inline-block;background:#242830;border:1px solid var(--line);border-radius:20px;padding:4px 12px;margin:3px}
+.chip a{cursor:pointer;color:var(--acc);margin-left:6px}
 .grid{display:flex;flex-wrap:wrap;gap:8px}
 .c{width:150px;border-radius:8px;cursor:pointer;transition:transform .15s;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
-#zoom{position:fixed;top:50%;transform:translateY(-50%);width:320px;border-radius:14px;box-shadow:0 8px 30px #000a;pointer-events:none;display:none;z-index:99}
 .s{width:100px}
 .t{width:42px}
 .tap{transform:rotate(90deg);margin:0 18px}
+#zoom{position:fixed;top:50%;transform:translateY(-50%);width:320px;border-radius:14px;box-shadow:0 8px 30px #000a;pointer-events:none;display:none;z-index:99}
 </style></head>
 <body><main id="app"></main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
