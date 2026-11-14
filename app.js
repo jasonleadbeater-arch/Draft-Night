@@ -419,8 +419,9 @@ async function mv(from,i,to){
     const c=strip(raw);
     if(to==='lib')s.lib.unshift(c);else if(to==='bf')s.bf.push({...c,sick:isCreature(c)});else s[to].push(c)});
 }
-const life=(pid,d)=>edit(pid,s=>{s.life+=d});
-const pois=pid=>edit(pid,s=>{s.poison++});
+const ownOnly=pid=>pid===me.id||(toast('You can only change your own life total and poison counters'),false);
+const life=(pid,d)=>ownOnly(pid)&&edit(pid,s=>{s.life+=d});
+const pois=(pid,d=1)=>ownOnly(pid)&&edit(pid,s=>{s.poison=Math.max(0,s.poison+d)});
 const drawEffect=()=>mine(s=>{if(s.lib.length)s.hand.push(s.lib.shift());else s.empty=true});
 const concede=()=>{if(confirm('Concede the game?'))mine(s=>{s.lost=true})};
 
@@ -497,8 +498,8 @@ function panel(p){
   const zc=(arr,z)=>`<div class="grid">${imgs(arr,'t',(c,i)=>own?`onclick="zoneMenu('${z}',${i})"`:'')}</div>`;
   return `<div class="box ${g.order[g.active]===p.id?'active':''} ${s.lost?'lost':''}"><b>${esc(p.name)}</b>${s.lost?' ☠ eliminated':''}
    · ❤ <b>${s.life}</b>
-   ${[-5,-1,1,5].map(d=>`<button class="sm" onclick="life('${p.id}',${d})">${d>0?'+':''}${d}</button>`).join('')}
-   · ☠ poison ${s.poison} <button class="sm" onclick="pois('${p.id}')">+1</button>
+   ${own?[-5,-1,1,5].map(d=>`<button class="sm" onclick="life('${p.id}',${d})">${d>0?'+':''}${d}</button>`).join(''):''}
+   · ☠ poison ${s.poison} ${own?`<button class="sm" onclick="pois('${p.id}',-1)">−1</button><button class="sm" onclick="pois('${p.id}',1)">+1</button>`:''}
    · Library ${s.lib.length} · Hand ${s.hand.length} · Graveyard ${s.gy.length} · Exile ${s.ex.length}
    <div class="grid">${imgs(s.bf,'s',(c,i)=>own?`onclick="bfMenu(${i})"`:'')}</div>
    ${s.gy.length?'<small>Graveyard</small>'+zc(s.gy,'gy'):''}${s.ex.length?'<small>Exile</small>'+zc(s.ex,'ex'):''}
