@@ -1,4 +1,4 @@
-const SUPABASE_URL='https://eaqkrtybkssrrtarlyap.supabase.co', SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVhcWtydHlia3NzcnJ0YXJseWFwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ2MDU2MDgsImV4cCI6MjExMDE4MTYwOH0.9cAe5p0G7zCS_9cG6_aIkdVlgS3XjYR1mfa8ffgpd2k';
+const SUPABASE_URL='https://YOUR-PROJECT.supabase.co', SUPABASE_KEY='YOUR-ANON-KEY';
 const db=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 const $app=document.getElementById('app');
 let me=JSON.parse(localStorage.getItem('mtg')||'null'),R=null,P=[],K=[],X=[],B=[],ch=null,timer=null;
@@ -63,6 +63,7 @@ function boot(){
 /* ---------- views ---------- */
 function render(){
   if(!R)return;
+  zoom.style.display='none';
   const views={lobby:lobbyV,draft:draftV,play:playV};
   $app.innerHTML=`<div class="bar">Room <b>${R.code}</b> · Set <b>${R.set_code.toUpperCase()}</b> · ${me.name}
     <span style="flex:1"></span><button onclick="leave()">Leave</button></div>`+views[R.status]();
@@ -74,12 +75,14 @@ const lobbyV=()=>`<div class="box"><h3>Lobby — share code <b>${R.code}</b></h3
 /* ---------- draft ---------- */
 async function start(){
   go.disabled=true;go.textContent='Fetching cards from Scryfall…';
-  let url=`https://api.scryfall.com/cards/search?unique=cards&q=${encodeURIComponent(`e:${R.set_code} is:booster`)}`,all=[];
+  let url=`https://api.scryfall.com/cards/search?unique=cards&q=${encodeURIComponent(`e:${R.set_code}`)}`,all=[];
   while(url){
     const r=await fetch(url);
-    if(!r.ok){alert('Scryfall found no booster cards for that set code');return render()}
+    if(!r.ok){alert(`Scryfall returned ${r.status} for set code "${R.set_code}". Check the code at scryfall.com/sets`);return render()}
     const j=await r.json();all.push(...j.data);url=j.next_page;await sleep(100);
   }
+  const inBoosters=all.filter(c=>c.booster);
+  if(inBoosters.length)all=inBoosters;
   const by=r=>all.filter(c=>c.rarity===r&&!c.type_line.startsWith('Basic')).map(slim);
   const C=by('common'),U=by('uncommon'),Rr=by('rare'),M=by('mythic'),n=P.length,rows=[];
   for(let rd=1;rd<=3;rd++)for(let s=0;s<n;s++)
@@ -158,5 +161,13 @@ async function act(a,i){
   await db.from('boards').update({state:s}).eq('room_code',me.code).eq('player_id',me.id);
 }
 async function resetB(){await db.from('boards').delete().eq('room_code',me.code).eq('player_id',me.id);load()}
+
+/* ---------- hover zoom ---------- */
+const zoom=document.createElement('img');zoom.id='zoom';document.body.appendChild(zoom);
+const isCard=e=>e.target.tagName==='IMG'&&e.target.classList.contains('c');
+const place=e=>{const left=e.clientX>innerWidth/2;zoom.style.left=left?'16px':'auto';zoom.style.right=left?'auto':'16px'};
+document.addEventListener('mouseover',e=>{if(isCard(e)){zoom.src=e.target.src;zoom.style.display='block';place(e)}});
+document.addEventListener('mousemove',e=>{if(zoom.style.display==='block')place(e)});
+document.addEventListener('mouseout',e=>{if(isCard(e))zoom.style.display='none'});
 
 me?boot():home();
