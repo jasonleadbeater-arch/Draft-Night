@@ -1,4 +1,3 @@
-const SUPABASE_URL='https://eaqkrtybkssrrtarlyap.supabase.co', SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVhcWtydHlia3NzcnJ0YXJseWFwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ2MDU2MDgsImV4cCI6MjExMDE4MTYwOH0.9cAe5p0G7zCS_9cG6_aIkdVlgS3XjYR1mfa8ffgpd2k';
 const db=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);   // values come from config.js
 const $app=document.getElementById('app');
 const MIN_DECK=40,START_LIFE=20,MAX_HAND=7;
@@ -424,4 +423,3 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&me)load()
 setInterval(()=>{if(me&&R&&R.status!=='lobby')load()},5000);
 
 me?boot():home();
-
