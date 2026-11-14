@@ -18,3 +18,7 @@ end $$;
 create table if not exists profiles (name text primary key, created_at timestamptz default now());
 alter table profiles enable row level security;
 create policy "open" on profiles for all using (true) with check (true);
+
+-- Rules / formats update (run this if you already ran the rest):
+alter table rooms add column if not exists format text default 'draft';
+alter table rooms add column if not exists game jsonb;
