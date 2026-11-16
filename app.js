@@ -164,6 +164,7 @@ function render(){
   $app.innerHTML=`<div class="bar">Room <b>${R.code}</b> · ${FORMATS[f].name} · <b>${label}</b> · ${esc(me.name)}
     <span style="flex:1"></span>${R.status==='play'?'<button class="sm" onclick="openMana()">🎴 Manabrew</button><button class="sm" onclick="openForge()">🔥 Forge</button> ':''}<button onclick="leave()">Leave</button></div>`+views[R.status]();
   const fd=document.getElementById('forge');if(fd&&fd.style.display==='flex')renderForge();
+  const md=document.getElementById('mana');if(md&&md.style.display==='flex')renderMana();
 }
 const lobbyV=()=>`<div class="box"><h3>Lobby — share code <b>${R.code}</b></h3>
   <p>${FORMATS[R.format||'draft'].info}</p>
@@ -384,24 +385,62 @@ const manaText=p=>{                                   // "Deck" / "Sideboard" he
 };
 const manaFiles=()=>P.map(p=>({p,n:X.filter(x=>x.player_id===p.id&&x.in_deck).length})).filter(o=>o.n>0)
   .map(o=>({name:`${safe(o.p.name)} - ${R.code}.txt`,text:manaText(o.p),n:o.n,who:o.p.name}));
+let manaKey='';
 function openMana(){
   let d=document.getElementById('mana');
   if(!d){d=document.createElement('div');d.id='mana';d.onclick=e=>{if(e.target===d)closeMana()};document.body.appendChild(d)}
-  d.innerHTML=`<div class="mb"><b>Play this pod in Manabrew</b>
-    <small>Manabrew is a separate, free web app with a Forge-compatible rules engine. Draft Night hands over your deck; the game itself is played there. It is pre-release software, so some cards may not be supported yet.</small>
-    <ol>
-     <li><b>Everyone:</b> copy your deck list (or download it).<br>
-       <button class="sm" onclick="copyMana()">Copy my deck list</button>
-       <button class="sm" onclick="downloadMana()">⬇ My deck (.txt)</button>
-       <button class="sm" onclick="exportManaPod()">⬇ Whole pod (.zip)</button></li>
-     <li><b>Everyone:</b> open Manabrew: <a href="${MANABREW_URL}" target="_blank" rel="noopener" style="color:var(--acc)">${MANABREW_URL.replace('https://','')}</a>.
-       In the deck editor start a new deck, choose <b>Import from text</b>, paste the list and import it. The editor warns you about any cards the engine doesn't implement.</li>
-     <li><b>One player:</b> open the multiplayer lobby and choose <b>Create table</b> for your group. <b>Everyone else:</b> <b>Join table</b>, then pick your deck.</li>
-     <li>Optional: Manabrew's Settings has a "Peer to Peer" option for direct connections. Every player at the table has to switch it on.</li></ol>
-    <small>Your list includes your sideboard under a "Sideboard" heading. Cards are matched by name, so Manabrew uses its default printing.</small>
-    <button class="ghost" onclick="closeMana()">Close</button></div>`;
-  d.style.display='flex';
+  d.style.display='flex';manaKey='';renderMana();
 }
+function renderMana(){
+  const d=document.getElementById('mana'),m=R.mana||null,key=JSON.stringify(m);
+  if(key===manaKey&&d.innerHTML)return;              // don't wipe what someone is typing unless the shared table changed
+  manaKey=key;
+  const hostP=m&&P.find(p=>p.id===m.host),isHost=m&&m.host===me.id;
+  const table=m?`<div class="box" style="margin:0"><b>Table:</b> <code>${esc(m.table)}</code> <button class="sm" onclick="copyManaTable()">Copy name</button>
+      <small> created by ${esc(hostP?.name||'?')}</small>${m.note?`<div><small>Note: ${esc(m.note)}</small></div>`:''}
+      <div style="margin:6px 0">${P.map(p=>`<div>${esc(p.name)}: ${m.joined?.[p.id]?'✅ at the table':'… not yet'}</div>`).join('')}</div>
+      <button class="sm" onclick="manaJoined()">${m.joined?.[me.id]?"I've left the table":"I'm at the table"}</button>
+      ${isHost?'<button class="sm ghost" onclick="manaClear()">Stop sharing this table</button>':''}</div>`
+    :`<div class="box" style="margin:0"><b>Created the table in Manabrew? Share it here</b><br>
+      <input id="mt" placeholder="Table name, exactly as in Manabrew"><input id="mn" placeholder="Password / note (optional)">
+      <button class="sm" onclick="manaShare()">Share table with the room</button>
+      <br><small>No table yet. Whoever creates it in Manabrew's lobby does this step. The name and note are visible to everyone in this room.</small></div>`;
+  d.innerHTML=`<div class="mb"><b>Play this pod in Manabrew</b>
+    <small>Manabrew is a separate, free web app with a Forge-compatible rules engine. Draft Night hands over your deck and the table name; the game itself is played there. It is pre-release software, so some cards may not be supported yet.</small>
+    <ol>
+     <li><b>Everyone:</b> <button class="sm" onclick="startMana()">▶ Copy my deck &amp; open Manabrew</button>
+       <small> (tab blocked? open <a href="${MANABREW_URL}" target="_blank" rel="noopener" style="color:var(--acc)">${MANABREW_URL.replace('https://','')}</a> yourself)</small><br>
+       In Manabrew's deck editor start a new deck, choose <b>Import from text</b>, paste (your list is already copied) and import. The editor warns about cards the engine doesn't implement.
+       <br><small>Prefer a file? <a href="#" onclick="downloadMana();return false" style="color:var(--acc)">my deck (.txt)</a> · <a href="#" onclick="exportManaPod();return false" style="color:var(--acc)">whole pod (.zip)</a> · <a href="#" onclick="copyMana();return false" style="color:var(--acc)">just copy</a></small></li>
+     <li><b>One player:</b> in Manabrew's multiplayer lobby choose <b>Create table</b>, then share its name below.</li>
+     <li><b>Everyone else:</b> when the table shows up below, open Manabrew's lobby, find it and choose <b>Join table</b>, then pick your deck.</li>
+     <li>Optional: Manabrew's Settings has a "Peer to Peer" option for direct connections. Every player has to switch it on.</li></ol>
+    ${table}
+    <small>Cards are matched by name, so Manabrew uses its default printing. Your sideboard is under a "Sideboard" heading.</small>
+    <button class="ghost" onclick="closeMana()">Close</button></div>`;
+}
+function startMana(){                                  // one click: copy the list AND open Manabrew (both must happen inside this click)
+  const f=manaFiles().find(x=>x.who===me.name);
+  if(!f)return toast('Add cards to your deck first');
+  navigator.clipboard.writeText(f.text).then(
+    ()=>toast(f.n<MIN_DECK?`Copied — but your deck has only ${f.n} cards. Paste it with "Import from text".`:'Deck list copied — paste it with "Import from text" in Manabrew',f.n>=MIN_DECK),
+    ()=>{download(f.name,f.text,'text/plain');toast('Could not copy automatically — your deck list was downloaded instead')});
+  window.open(MANABREW_URL,'_blank','noopener');
+}
+async function setMana(v){await db.from('rooms').update({mana:v}).eq('code',R.code);R.mana=v;render()}
+async function manaShare(){
+  const t=mt.value.replace(/[\u0000-\u001f]/g,' ').trim().slice(0,60),n=mn.value.replace(/[\u0000-\u001f]/g,' ').trim().slice(0,80);
+  if(!t)return toast('Enter the table name exactly as it appears in Manabrew');
+  const {error}=await db.from('rooms').update({mana:{host:me.id,table:t,note:n,joined:{[me.id]:true}}}).eq('code',R.code);
+  if(error)return alert(error.message+'\n(Have you run the latest SQL from schema.sql?)');
+  R.mana={host:me.id,table:t,note:n,joined:{[me.id]:true}};render();
+}
+async function manaJoined(){
+  const {data}=await db.from('rooms').select('mana').eq('code',R.code).single(),m=data.mana;if(!m)return;
+  m.joined={...m.joined,[me.id]:!m.joined?.[me.id]};await setMana(m);
+}
+async function manaClear(){if(R.mana?.host===me.id)await setMana(null)}
+async function copyManaTable(){try{await navigator.clipboard.writeText(R.mana.table);toast('Table name copied',true)}catch(e){toast('Could not copy — select the name manually')}}
 const closeMana=()=>{document.getElementById('mana').style.display='none'};
 async function copyMana(){
   const f=manaFiles().find(x=>x.who===me.name);if(!f)return toast('Add cards to your deck first');
