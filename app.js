@@ -373,7 +373,51 @@ async function copyList(){
 const exportBar=()=>`<div style="margin:6px 0"><b>Play it in Forge:</b>
   <button class="sm" onclick="exportMine()">⬇ My deck (.dck)</button><button class="sm" onclick="exportPod()">⬇ Whole pod (.zip)</button>
   <button class="sm" onclick="copyList()">Copy list</button>
-  <button class="sm" onclick="openForge()">🔥 Play in Forge</button></div>`;
+  <button class="sm" onclick="openForge()">🔥 Play in Forge</button>
+  <button class="sm" onclick="openMana()">🎴 Play in Manabrew</button></div>`;
+
+/* ---------- hand the pod to Manabrew (play.manabrew.app) ---------- */
+const MANABREW_URL='https://play.manabrew.app';
+const manaText=p=>{                                   // "Deck" / "Sideboard" headings are understood by Manabrew's importer
+  const mp=X.filter(x=>x.player_id===p.id),main=tally(mp.filter(x=>x.in_deck)),side=tally(mp.filter(x=>!x.in_deck));
+  return `Deck\n${main}\n`+(side?`\nSideboard\n${side}\n`:'');
+};
+const manaFiles=()=>P.map(p=>({p,n:X.filter(x=>x.player_id===p.id&&x.in_deck).length})).filter(o=>o.n>0)
+  .map(o=>({name:`${safe(o.p.name)} - ${R.code}.txt`,text:manaText(o.p),n:o.n,who:o.p.name}));
+function openMana(){
+  let d=document.getElementById('mana');
+  if(!d){d=document.createElement('div');d.id='mana';d.onclick=e=>{if(e.target===d)closeMana()};document.body.appendChild(d)}
+  d.innerHTML=`<div class="mb"><b>Play this pod in Manabrew</b>
+    <small>Manabrew is a separate, free web app with a Forge-compatible rules engine. Draft Night hands over your deck; the game itself is played there. It is pre-release software, so some cards may not be supported yet.</small>
+    <ol>
+     <li><b>Everyone:</b> copy your deck list (or download it).<br>
+       <button class="sm" onclick="copyMana()">Copy my deck list</button>
+       <button class="sm" onclick="downloadMana()">⬇ My deck (.txt)</button>
+       <button class="sm" onclick="exportManaPod()">⬇ Whole pod (.zip)</button></li>
+     <li><b>Everyone:</b> open Manabrew: <a href="${MANABREW_URL}" target="_blank" rel="noopener" style="color:var(--acc)">${MANABREW_URL.replace('https://','')}</a>.
+       In the deck editor start a new deck, choose <b>Import from text</b>, paste the list and import it. The editor warns you about any cards the engine doesn't implement.</li>
+     <li><b>One player:</b> open the multiplayer lobby and choose <b>Create table</b> for your group. <b>Everyone else:</b> <b>Join table</b>, then pick your deck.</li>
+     <li>Optional: Manabrew's Settings has a "Peer to Peer" option for direct connections. Every player at the table has to switch it on.</li></ol>
+    <small>Your list includes your sideboard under a "Sideboard" heading. Cards are matched by name, so Manabrew uses its default printing.</small>
+    <button class="ghost" onclick="closeMana()">Close</button></div>`;
+  d.style.display='flex';
+}
+const closeMana=()=>{document.getElementById('mana').style.display='none'};
+async function copyMana(){
+  const f=manaFiles().find(x=>x.who===me.name);if(!f)return toast('Add cards to your deck first');
+  try{await navigator.clipboard.writeText(f.text);toast(f.n<MIN_DECK?`Copied — note your deck has only ${f.n} cards`:'Deck list copied',f.n>=MIN_DECK)}
+  catch(e){toast('Could not copy — use the .txt download instead')}
+}
+function downloadMana(){
+  const f=manaFiles().find(x=>x.who===me.name);if(!f)return toast('Add cards to your deck first');
+  download(f.name,f.text,'text/plain');
+}
+function exportManaPod(){
+  const f=manaFiles();if(!f.length)return toast('No decks built yet');
+  download(`${R.code}-manabrew-pod.zip`,makeZip(f.map(({name,text})=>({name,text}))),'application/zip');
+  const short=f.filter(x=>x.n<MIN_DECK).map(x=>`${x.who} (${x.n})`);
+  if(short.length)toast(`Exported, but under ${MIN_DECK} cards: ${short.join(', ')}`);
+}
 
 /* ---------- hand the pod to Forge's network play ---------- */
 let forgeKey='';
