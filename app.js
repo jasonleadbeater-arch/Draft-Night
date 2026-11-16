@@ -168,6 +168,7 @@ function render(){
 const lobbyV=()=>`<div class="box"><h3>Lobby — share code <b>${R.code}</b></h3>
   <p>${FORMATS[R.format||'draft'].info}</p>
   ${P.map(p=>`<div>${p.seat+1}. ${esc(p.name)}</div>`).join('')}
+  <p>${timerCtl()}</p>
   ${me.seat===0?`<button id="go" onclick="start()">Start</button>`:'<p>Waiting for host…</p>'}</div>`;
 
 /* ---------- starting: card pools per format ---------- */
@@ -233,10 +234,40 @@ async function start(){
   await db.from('rooms').update({status:'draft',round:1}).eq('code',R.code);
 }
 
+/* ---------- pick timer ---------- */
+const PICK_SECONDS=90;
+let cdLeft=0,deadline=0,dlKey='';
+const canTimer=()=>(R.format||'draft')!=='sealed';
+const timerBadge=()=>R.timer&&myPack()?`<span id="cd" class="cd${cdLeft<=10?' low':''}">⏱ ${cdLeft}s</span>`:'';
+const timerCtl=()=>!canTimer()?'':me.seat===0
+  ?`<button class="sm" onclick="toggleTimer()">⏱ Pick timer: ${R.timer?`ON (${R.timer} s)`:'OFF'}</button><small> ${R.timer?'If you run out of time, the first card in the pack is picked for you.':'Optional: auto-picks the first card when a player runs out of time.'}</small>`
+  :`<small>⏱ Pick timer: ${R.timer?`ON — ${R.timer} s per pick (first card is auto-picked at 0)`:'off'}</small>`;
+async function toggleTimer(){
+  if(me.seat!==0)return;
+  const {error}=await db.from('rooms').update({timer:R.timer?0:PICK_SECONDS}).eq('code',R.code);
+  if(error)return alert(error.message+'\n(Have you run the latest SQL from schema.sql?)');
+  load();
+}
+function tick(){                                   // runs twice a second
+  if(!me||!R||R.status!=='draft'||!R.timer){dlKey='';return}
+  const k=myPack();
+  if(!k){dlKey='';return}
+  const key=k.id+':'+k.cards.length;               // a new pack (or a smaller one) = a new pick = a fresh countdown
+  if(key!==dlKey){dlKey=key;deadline=Date.now()+R.timer*1000}
+  cdLeft=Math.max(0,Math.ceil((deadline-Date.now())/1000));
+  const el=document.getElementById('cd');
+  if(el){el.textContent=`⏱ ${cdLeft}s`;el.className='cd'+(cdLeft<=10?' low':'')}
+  if(cdLeft<=0&&!busy){
+    const c=k.cards[0];
+    toast(`⏱ Time's up — auto-picked ${c.name}`);
+    pick(k.id,c.id);
+  }
+}
+
 /* ---------- draft ---------- */
 function draftV(){
   const k=myPack(),mp=X.filter(x=>x.player_id===me.id);
-  return `<div class="box"><h3>Round ${R.round}/3 · ${mp.length} picked · passing ${R.round%2?'left':'right'}</h3>
+  return `<div class="box"><h3>Round ${R.round}/3 · ${mp.length} picked · passing ${R.round%2?'left':'right'} ${timerBadge()}</h3>${me.seat===0?`<p>${timerCtl()}</p>`:''}
   ${k?`<div class="grid">${imgs(k.cards,'',c=>`onclick="pick('${k.id}','${c.id}')"`)}</div>`:'<p>Waiting for the next pack to be passed to you…</p>'}</div>
   <div class="box"><h4>Your picks (${mp.length})</h4><div class="grid">${imgs(mp.map(x=>x.card),'s')}</div></div>`;
 }
@@ -249,8 +280,8 @@ async function pick(pid,cid){
     const n=P.length,dir=R.round%2?1:-1,rest=k.cards.filter(c=>c.id!==cid);
     await db.from('picks').insert({room_code:me.code,player_id:me.id,card:c});
     await db.from('packs').update({cards:rest,holder_seat:(k.holder_seat+dir+n)%n}).eq('id',pid);
+    await load();
   }finally{busy=false}
-  load();
 }
 
 /* ---------- deck building ---------- */
@@ -602,5 +633,6 @@ document.addEventListener('touchmove',e=>{if(Math.hypot(e.touches[0].clientX-sx,
 ['click','contextmenu'].forEach(ev=>document.addEventListener(ev,e=>{if(held){e.preventDefault();e.stopPropagation()}},true));
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&me)load()});
 setInterval(()=>{if(me&&R&&R.status!=='lobby')load()},5000);
+setInterval(tick,500);
 
 me?boot():home();
