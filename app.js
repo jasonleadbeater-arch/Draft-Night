@@ -162,7 +162,7 @@ function render(){
   const f=R.format||'draft',label=f==='cube'?'Cube: '+R.set_code.toUpperCase():R.set_code==='*'?'All sets (chaos)':R.set_code.toUpperCase().split(',').join(' + ');
   const views={lobby:lobbyV,draft:draftV,play:playV};
   $app.innerHTML=`<div class="bar">Room <b>${R.code}</b> · ${FORMATS[f].name} · <b>${label}</b> · ${esc(me.name)}
-    <span style="flex:1"></span><button onclick="leave()">Leave</button></div>`+views[R.status]();
+    <span style="flex:1"></span>${R.status==='play'?'<button class="sm" onclick="openMana()">🎴 Manabrew</button><button class="sm" onclick="openForge()">🔥 Forge</button> ':''}<button onclick="leave()">Leave</button></div>`+views[R.status]();
   const fd=document.getElementById('forge');if(fd&&fd.style.display==='flex')renderForge();
 }
 const lobbyV=()=>`<div class="box"><h3>Lobby — share code <b>${R.code}</b></h3>
