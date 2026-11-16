@@ -28,3 +28,6 @@ alter table rooms add column if not exists forge jsonb;
 
 -- Optional pick timer (seconds per pick; 0 = off):
 alter table rooms add column if not exists timer int default 0;
+
+-- Manabrew shared table (table name + who has joined):
+alter table rooms add column if not exists mana jsonb;
