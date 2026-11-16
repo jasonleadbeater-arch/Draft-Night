@@ -25,3 +25,6 @@ alter table rooms add column if not exists game jsonb;
 
 -- Forge network-play handoff (host address shared with the room):
 alter table rooms add column if not exists forge jsonb;
+
+-- Optional pick timer (seconds per pick; 0 = off):
+alter table rooms add column if not exists timer int default 0;
