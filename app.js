@@ -12,7 +12,10 @@ let me=JSON.parse(localStorage.getItem('mtg')||'null'),R=null,P=[],K=[],X=[],B=[
 
 /* ---------- helpers ---------- */
 const img=c=>c.image_uris?.normal||c.card_faces?.[0]?.image_uris?.normal||'';
-const slim=c=>({id:c.id,name:c.name,img:img(c),r:c.rarity,t:c.type_line,kw:c.keywords||[],l:c.layout});
+const f0=c=>c.card_faces?.[0]||{};
+const slim=c=>({id:c.id,name:c.name,img:img(c),r:c.rarity,t:c.type_line,kw:c.keywords||[],l:c.layout,
+  cmc:c.cmc,col:c.colors||f0(c).colors||[],mc:c.mana_cost||f0(c).mana_cost||'',pw:c.power??f0(c).power,tg:c.toughness??f0(c).toughness,
+  ot:c.oracle_text||(c.card_faces||[]).map(f=>f.oracle_text).filter(Boolean).join('\n')});
 const shuffle=a=>{for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]}return a};
 const sample=(a,k)=>shuffle([...a]).slice(0,k);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -162,9 +165,10 @@ function render(){
   const f=R.format||'draft',label=f==='cube'?'Cube: '+R.set_code.toUpperCase():R.set_code==='*'?'All sets (chaos)':R.set_code.toUpperCase().split(',').join(' + ');
   const views={lobby:lobbyV,draft:draftV,play:playV};
   $app.innerHTML=`<div class="bar">Room <b>${R.code}</b> · ${FORMATS[f].name} · <b>${label}</b> · ${esc(me.name)}
-    <span style="flex:1"></span>${R.status==='play'?'<button class="sm" onclick="openMana()">🎴 Manabrew</button><button class="sm" onclick="openForge()">🔥 Forge</button> ':''}<button onclick="leave()">Leave</button></div>`+views[R.status]();
+    <span style="flex:1"></span>${R.status==='play'?'<button class="sm" onclick="openStats()">📊 Stats</button><button class="sm" onclick="openMana()">🎴 Manabrew</button><button class="sm" onclick="openForge()">🔥 Forge</button> ':''}<button onclick="leave()">Leave</button></div>`+views[R.status]();
   const fd=document.getElementById('forge');if(fd&&fd.style.display==='flex')renderForge();
   const md=document.getElementById('mana');if(md&&md.style.display==='flex')renderMana();
+  const sd=document.getElementById('stats');if(sd&&sd.style.display==='flex')renderStats();
 }
 const lobbyV=()=>`<div class="box"><h3>Lobby — share code <b>${R.code}</b></h3>
   <p>${FORMATS[R.format||'draft'].info}</p>
@@ -696,6 +700,207 @@ function panel(p){
    ${s.gy.length?'<small>Graveyard</small>'+zc(s.gy,'gy'):''}${s.ex.length?'<small>Exile</small>'+zc(s.ex,'ex'):''}
    ${own&&!s.lost?`<div><button class="sm" onclick="drawEffect()">Draw a card (effect)</button><button class="sm" onclick="openTokens()">Create token</button><button class="sm" onclick="mine(s=>shuffle(s.lib))">Shuffle library</button><button class="sm" onclick="concede()">Concede</button></div>`:''}</div>`;
 }
+
+/* ---------- stats: mana curve, card types, pool + deck ratings ---------- */
+const META={};                                          // Scryfall details for picks saved before stats existed
+let STAB='deck',STAT_LOADING=false,statsKey='';
+const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
+const COLORS=['W','U','B','R','G'],CNAME={W:'White',U:'Blue',B:'Black',R:'Red',G:'Green',M:'Multicolour',C:'Colourless'};
+const CCOL={W:'#f3eecf',U:'#4a90d9',B:'#7a6a8a',R:'#d3202a',G:'#2e9e5b',M:'#c9a227',C:'#9aa0a6'};
+const BASIC_COLOR={Plains:'W',Island:'U',Swamp:'B',Mountain:'R',Forest:'G'};
+const grade=s=>s>=90?'A+':s>=85?'A':s>=80?'A-':s>=75?'B+':s>=70?'B':s>=65?'B-':s>=60?'C+':s>=55?'C':s>=50?'C-':s>=40?'D':'F';
+const scoreCol=s=>s>=75?'#3aa76d':s>=55?'#c9a227':s>=40?'#d98a2b':'#d1493f';
+function cinfo(c){
+  const m=META[c.id]||{},f=m.card_faces?.[0]||{};
+  return{id:c.id,name:c.name,type:(c.t||m.type_line||'').split(' // ')[0],cmc:c.cmc??m.cmc,cols:c.col??m.colors??f.colors??[],
+    cost:c.mc??m.mana_cost??f.mana_cost??'',pow:c.pw??m.power??f.power,tou:c.tg??m.toughness??f.toughness,
+    ot:c.ot??m.oracle_text??(m.card_faces||[]).map(x=>x.oracle_text).filter(Boolean).join('\n'),kw:c.kw?.length?c.kw:(m.keywords||[]),r:c.r||m.rarity};
+}
+const isLandI=i=>/\bLand\b/.test(i.type),isCreatureI=i=>/\bCreature\b/.test(i.type),isBasicI=i=>/\bBasic\b/.test(i.type);
+const typeOf=i=>['Land','Creature','Planeswalker','Battle','Instant','Sorcery','Artifact','Enchantment'].find(t=>new RegExp('\\b'+t+'\\b').test(i.type))||'Other';
+function pips(i){const o={W:0,U:0,B:0,R:0,G:0};for(const m of (i.cost||'').matchAll(/\{([^}]+)\}/g)){const p=m[1].split('/').filter(x=>COLORS.includes(x));p.forEach(x=>o[x]+=1/p.length)}return o}
+async function loadMeta(cards){                         // POST /cards/collection: up to 75 cards per request
+  const need=[...new Set(cards.filter(c=>c.cmc===undefined&&!META[c.id]&&!/^s-/.test(c.id)).map(c=>c.id))];
+  for(let i=0;i<need.length;i+=75){
+    try{
+      const r=await fetch('https://api.scryfall.com/cards/collection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({identifiers:need.slice(i,i+75).map(id=>({id}))})});
+      if(r.ok)for(const c of (await r.json()).data)META[c.id]=c;
+    }catch(e){}
+    if(i+75<need.length)await sleep(100);
+  }
+}
+/* A transparent rule-of-thumb score (1-10), NOT win-rate data: rarity, creature stats for the cost, keywords, removal, card advantage... */
+const KWS={flying:1.2,deathtouch:1,lifelink:.8,trample:.5,'first strike':.8,'double strike':1.5,menace:.6,haste:.4,vigilance:.3,reach:.2,flash:.4,hexproof:.6,ward:.6,indestructible:1,defender:-.5};
+function scoreCard(i){
+  if(isLandI(i))return null;
+  const ot=(i.ot||'').toLowerCase(),kw=(i.kw||[]).map(k=>k.toLowerCase()),cm=i.cmc??3,num=x=>isNaN(+x)?2:+x;
+  let s={common:3.4,uncommon:4.2,rare:5,mythic:5.4}[i.r]??3.6,removal=false;
+  if(isCreatureI(i)&&cm>=1)s+=clamp((num(i.pow)+num(i.tou)-2*cm)*.35,-1.5,2.2);
+  s+=Math.min(2.5,kw.reduce((a,k)=>a+(KWS[k]||0),0));
+  if(/(destroy|exile) target|deals? (x|\d+) damage to (any target|target (creature|planeswalker))|gets? -\d+\/-\d+|fights? /.test(ot)){s+=2;removal=true;if(cm<=3)s+=.3}
+  else if(/return target [^.]*to (its|their) owner's hand/.test(ot))s+=.6;
+  if(/draw (a|two|three|\d+) cards?/.test(ot))s+=.9;
+  if(/create [^.]*token/.test(ot))s+=.8;
+  if(/(destroy|exile) all (creatures|nonland)/.test(ot))s+=1;
+  if(/counter target [^.]*spell/.test(ot))s+=.6;
+  if(/\bPlaneswalker\b/.test(i.type))s+=2.6;
+  if(!isCreatureI(i)&&/add \{[wubrgc]\}/.test(ot)&&/Artifact/.test(i.type))s+=.6;
+  if(isCreatureI(i)&&!ot.trim()&&!kw.length&&cm>=5)s-=.6;
+  if(/can't block/.test(ot))s-=.5;
+  if(cm>=7)s-=.7;
+  s=clamp(s,1,10);
+  return{s,removal,bomb:s>=6.8};
+}
+const avgPad=(list,n=23)=>(list.slice(0,n).reduce((a,x)=>a+x.sc.s,0)+(n-Math.min(n,list.length))*3)/n;
+function bestBuild(spells){                              // the best 23 playables you could field in one or two colours
+  const sets=[[]];COLORS.forEach(a=>{sets.push([a]);COLORS.forEach(b=>{if(a<b)sets.push([a,b])})});
+  let best=null;
+  for(const set of sets){
+    const top=spells.filter(x=>x.i.cols.every(c=>set.includes(c))).sort((p,q)=>q.sc.s-p.sc.s).slice(0,23);
+    const sum=top.reduce((a,x)=>a+x.sc.s,0)+(23-top.length)*3;
+    if(!best||sum>best.sum)best={set,top,sum};
+  }
+  return best;
+}
+const scoredSpells=cards=>cards.map(cinfo).filter(i=>!isBasicI(i)).map(i=>({i,sc:scoreCard(i)})).filter(x=>x.sc);
+function ratePool(cards){
+  const spells=scoredSpells(cards);
+  if(spells.length<5)return{score:0,n:spells.length,spells,comp:[],empty:true};
+  const all=[...spells].sort((a,b)=>b.sc.s-a.sc.s),best=bestBuild(spells),top=best.top;
+  const q=clamp((avgPad(top)-3.6)/2.2,0,1),depth=clamp(top.filter(x=>x.sc.s>=4.2).length/23,0,1),
+        bombs=clamp(top.filter(x=>x.sc.bomb).length/3,0,1),rem=clamp(top.filter(x=>x.sc.removal).length/5,0,1),
+        focus=1-clamp(avgPad(all)-avgPad(top),0,1);
+  const score=Math.round(100*(.45*q+.2*depth+.15*bombs+.1*rem+.1*focus));
+  return{score,n:spells.length,spells,best,comp:[
+    ['Card quality',q*100,`average ${avgPad(top).toFixed(1)}/10 across your best 23 playables`],
+    ['Playable depth',depth*100,`${top.filter(x=>x.sc.s>=4.2).length} solid playables in your best colours (${best.set.join('/')||'colourless'})`],
+    ['Bombs',bombs*100,`${top.filter(x=>x.sc.bomb).length} standout card(s)`],
+    ['Removal',rem*100,`${top.filter(x=>x.sc.removal).length} removal spell(s)`],
+    ['Colour focus',focus*100,focus>.9?'your best cards share two colours':'your best cards are spread across colours']]};
+}
+function rateDeck(deck,pool){
+  const di=deck.map(cinfo),size=di.length;if(size<10)return null;
+  const lands=di.filter(isLandI),sp=di.filter(i=>!isLandI(i)),scored=sp.map(i=>({i,sc:scoreCard(i)})),comp=[],tips=[];
+  // lands
+  const target=Math.round(size*.425),diff=Math.abs(lands.length-target),landS=clamp(100-diff*22,0,100);
+  comp.push(['Land count',landS,`${lands.length} lands in ${size} cards (about ${target} is typical)`]);
+  if(diff>=2)tips.push(lands.length<target?`Add ${target-lands.length} more land(s): ${lands.length} is light for ${size} cards.`:`Cut ${lands.length-target} land(s): ${lands.length} is a lot for ${size} cards.`);
+  // curve
+  const cm=sp.map(i=>i.cmc??3),avgC=cm.length?cm.reduce((a,b)=>a+b,0)/cm.length:0,cheap=cm.filter(c=>c<=2).length,hi=cm.filter(c=>c>=5).length;
+  let curveS=100;curveS-=(avgC<2.4?2.4-avgC:avgC>3.4?avgC-3.4:0)*40;
+  const needCheap=Math.max(3,Math.round(sp.length*.2)),maxTop=Math.round(sp.length*.22);
+  if(cheap<needCheap)curveS-=(needCheap-cheap)*7;
+  if(hi>maxTop)curveS-=(hi-maxTop)*8;
+  curveS=clamp(curveS,0,100);
+  comp.push(['Mana curve',curveS,`average mana value ${avgC.toFixed(1)}, ${cheap} cheap plays (2 or less), ${hi} expensive (5+)`]);
+  if(cheap<needCheap)tips.push(`Only ${cheap} cheap plays (mana value 2 or less): aim for about ${needCheap} so you aren't run over early.`);
+  if(hi>maxTop)tips.push(`${hi} cards cost 5 or more. Consider trimming to about ${maxTop}.`);
+  if(avgC>3.4)tips.push(`The deck is top-heavy (average mana value ${avgC.toFixed(1)}).`);
+  // creatures
+  const cr=sp.filter(isCreatureI).length,lo=sp.length*.55,up=sp.length*.72,d=cr<lo?lo-cr:cr>up?cr-up:0,crS=clamp(100-d*10,0,100);
+  comp.push(['Creature count',crS,`${cr} creatures among ${sp.length} spells`]);
+  if(cr<lo)tips.push(`Only ${cr} creatures: most limited decks want about ${Math.round(lo)}-${Math.round(up)}.`);
+  if(cr>up)tips.push(`${cr} creatures is a lot. A few more spells could add variety.`);
+  // colours + mana base
+  const per={};COLORS.forEach(c=>per[c]=sp.filter(i=>i.cols.includes(c)).length);
+  const mains=COLORS.filter(c=>per[c]>=3),splash=COLORS.filter(c=>per[c]>=1&&per[c]<3);
+  let colS=[100,100,100,80,55,35][Math.min(mains.length,5)]-splash.length*4;colS=clamp(colS,0,100);
+  const pip={W:0,U:0,B:0,R:0,G:0};sp.forEach(i=>{const p=pips(i);COLORS.forEach(c=>pip[c]+=p[c])});
+  const bas={W:0,U:0,B:0,R:0,G:0};lands.forEach(l=>{const c=BASIC_COLOR[l.name];if(c)bas[c]++});
+  const pt=COLORS.reduce((a,c)=>a+pip[c],0),bt=COLORS.reduce((a,c)=>a+bas[c],0);
+  let baseS=100,baseNote='no basic lands added, so the mana base was not checked';
+  if(bt>=3&&pt>0){
+    const dist=COLORS.reduce((a,c)=>a+Math.abs(pip[c]/pt-bas[c]/bt),0);baseS=clamp(100-dist*70,0,100);
+    baseNote=`basics ${COLORS.filter(c=>bas[c]).map(c=>bas[c]+' '+CNAME[c]).join(', ')} vs colour needs ${COLORS.filter(c=>pip[c]).map(c=>Math.round(100*pip[c]/pt)+'% '+CNAME[c]).join(', ')}`;
+    if(dist>.3)tips.push(`Your basic lands don't match your spells' colours (${baseNote}).`);
+  }
+  if(mains.length>=3)tips.push(`${mains.length} main colours makes the mana unreliable; consider trimming to two plus a small splash.`);
+  comp.push(['Colours & mana base',Math.round((colS+baseS)/2),`${mains.map(c=>CNAME[c]).join('/')||'no main colour'}${splash.length?` (+ splash ${splash.map(c=>CNAME[c]).join('/')})`:''}; ${baseNote}`]);
+  // card selection compared with the pool
+  const poolSp=scoredSpells(pool),best=bestBuild(poolSp),n=Math.min(sp.length,best.top.length),
+        da=scored.length?scored.reduce((a,x)=>a+x.sc.s,0)/scored.length:0,ba=n?best.top.slice(0,n).reduce((a,x)=>a+x.sc.s,0)/n:0,
+        selS=clamp(100-Math.max(0,ba-da)*45,0,100);
+  comp.push(['Card selection',selS,`deck average ${da.toFixed(1)} vs ${ba.toFixed(1)} for the best ${n} you could play from your pool`]);
+  const asc=scored.map(x=>x.sc.s).sort((x,y)=>x-y),bar=(asc[Math.min(2,asc.length-1)]??0)+.5,names=new Set(sp.map(i=>i.name)),colset=mains.length?mains:COLORS.filter(c=>per[c]);
+  const cand=poolSp.filter(x=>!names.has(x.i.name)&&x.sc.s>=bar&&x.i.cols.every(c=>colset.includes(c))).sort((p,q)=>q.sc.s-p.sc.s).slice(0,3);
+  if(cand.length)tips.push(`In your sideboard: ${cand.map(x=>x.i.name).join(', ')} may beat your weakest main-deck cards.`);
+  const W=[.15,.2,.15,.2,.3],score=Math.round(comp.reduce((a,c,k)=>a+c[1]*W[k],0));
+  return{score,comp,tips,avgC};
+}
+function curveSVG(sp){
+  const B=8,keys=['W','U','B','R','G','M','C'],data=Array.from({length:B},()=>({W:0,U:0,B:0,R:0,G:0,M:0,C:0,n:0}));
+  for(const i of sp){if(i.cmc==null)continue;const b=Math.min(B-1,Math.round(i.cmc)),k=i.cols.length===0?'C':i.cols.length>1?'M':i.cols[0];data[b][k]++;data[b].n++}
+  const max=Math.max(4,...data.map(d=>d.n)),H=200,base=H-26,u=(base-22)/max;let g='';
+  data.forEach((d,x)=>{
+    let y=base;const px=14+x*44;
+    keys.forEach(k=>{const h=d[k]*u;if(h>0){y-=h;g+=`<rect x="${px}" y="${y.toFixed(1)}" width="32" height="${h.toFixed(1)}" fill="${CCOL[k]}"><title>${CNAME[k]}: ${d[k]}</title></rect>`}});
+    if(d.n)g+=`<text x="${px+16}" y="${(y-5).toFixed(1)}" text-anchor="middle" fill="currentColor" font-size="12">${d.n}</text>`;
+    g+=`<text x="${px+16}" y="${H-8}" text-anchor="middle" fill="currentColor" font-size="12">${x===B-1?(B-1)+'+':x}</text>`;
+  });
+  const used=keys.filter(k=>data.some(d=>d[k]));
+  return `<svg viewBox="0 0 380 ${H}" style="width:100%;max-width:420px" role="img" aria-label="Mana curve">${g}<line x1="8" y1="${base}" x2="372" y2="${base}" stroke="currentColor" opacity=".4"/></svg>
+    <div>${used.map(k=>`<small style="margin-right:10px"><i style="display:inline-block;width:10px;height:10px;background:${CCOL[k]};margin-right:4px"></i>${CNAME[k]}</small>`).join('')}</div>`;
+}
+function typeBars(infos){
+  const order=['Creature','Instant','Sorcery','Artifact','Enchantment','Planeswalker','Battle','Land','Other'],cnt={};
+  infos.forEach(i=>{const t=typeOf(i);cnt[t]=(cnt[t]||0)+1});
+  const total=infos.length||1,max=Math.max(1,...Object.values(cnt));
+  return order.filter(t=>cnt[t]).map(t=>`<div style="display:flex;align-items:center;gap:8px;margin:3px 0"><span style="width:100px">${t}</span>
+    <div class="sbar" style="flex:1"><i style="width:${100*cnt[t]/max}%;background:var(--acc)"></i></div><span style="width:90px;text-align:right">${cnt[t]} <small>(${Math.round(100*cnt[t]/total)}%)</small></span></div>`).join('')||'<small>No cards yet</small>';
+}
+const meter=s=>`<div class="sbar"><i style="width:${clamp(s,0,100)}%;background:${scoreCol(s)}"></i></div>`;
+function ratingBlock(title,r,sub,extra=''){
+  if(!r||r.empty)return `<div class="sc"><b>${title}</b><p><small>${sub}</small></p></div>`;
+  return `<div class="sc"><b>${title}</b><div><span class="gv">${r.score}</span> <b style="font-size:22px">${grade(r.score)}</b> <small>/ 100</small></div>${meter(r.score)}
+    <small>${sub}</small>${extra}${r.comp.map(([l,s,n])=>`<div style="margin-top:6px"><small><b>${l}</b> ${Math.round(s)}${n?` · ${esc(n)}`:''}</small>${meter(s)}</div>`).join('')}</div>`;
+}
+function podStats(){
+  const out=P.map(p=>{
+    const mp=X.filter(x=>x.player_id===p.id),all=mp.map(x=>x.card),deck=mp.filter(x=>x.in_deck).map(x=>x.card);
+    return{p,pool:ratePool(all.filter(c=>!/\bBasic\b/.test(c.t||''))),deck:deck.length>=10?rateDeck(deck,all):null};
+  });
+  const top=out.flatMap(o=>o.pool.spells.map(x=>({...x,owner:o.p.id}))).sort((a,b)=>b.sc.s-a.sc.s||a.i.name.localeCompare(b.i.name)).slice(0,20);
+  out.forEach(o=>{o.held=top.filter(x=>x.owner===o.p.id).length;o.rank=1+out.filter(q=>q.pool.score>o.pool.score).length});
+  return out;
+}
+function statsHTML(){
+  const mine=X.filter(x=>x.player_id===me.id),allC=mine.map(x=>x.card),deckC=mine.filter(x=>x.in_deck).map(x=>x.card),poolC=allC.filter(c=>!/\bBasic\b/.test(c.t||''));
+  const tab=STAB==='deck'&&deckC.length?'deck':'pool',infos=(tab==='deck'?deckC:poolC).map(cinfo),sp=infos.filter(i=>!isLandI(i));
+  const unknown=sp.filter(i=>i.cmc==null).length,pod=podStats(),me_=pod.find(o=>o.p.id===me.id);
+  const tips=me_&&me_.deck?me_.deck.tips:[];
+  const held=me_?`<br><small>Pod rank #${me_.rank} of ${pod.length} · you hold ${me_.held} of the pod's 20 highest-rated cards</small>`:'';
+  return `<div class="mb"><b>📊 Draft stats</b>
+    <div><button class="sm ${tab==='deck'?'sel':''}" onclick="setStab('deck')">My deck (${deckC.length})</button>
+    <button class="sm ${tab==='pool'?'sel':''}" onclick="setStab('pool')">My whole pool (${poolC.length})</button></div>
+    ${STAT_LOADING?'<small>Loading card details from Scryfall…</small>':''}
+    ${unknown?`<small>⚠ Mana value is unavailable for ${unknown} card(s), so they are left out of the curve and rated with limited information.</small>`:''}
+    ${tab==='pool'&&deckC.length===0?'<small>Build a deck to see the deck rating and the curve of your deck.</small>':''}
+    <div class="sg"><div class="sc"><b>Mana curve</b> <small>(spells only, by mana value)</small>${curveSVG(sp)}</div>
+      <div class="sc"><b>Card types</b>${typeBars(infos)}</div></div>
+    <div class="sg">${ratingBlock('Pool rating',me_&&me_.pool,'How strong is everything you drafted? Based on the best 23-card deck you could build from your whole pool.',held)}
+      ${ratingBlock('Deck construction rating',me_&&me_.deck,deckC.length?'How well is your current deck built (lands, curve, creatures, colours, card choices)?':'Build a deck (10+ cards) to get this rating.')}</div>
+    ${tips.length?`<div class="sc"><b>Suggestions</b><ul style="margin:4px 0;padding-left:20px">${tips.map(t=>`<li>${esc(t)}</li>`).join('')}</ul></div>`:''}
+    <div class="sc"><b>The pod</b><table class="pt"><tr><th>Player</th><th>Pool rating</th><th>Deck rating</th><th>Top-20 cards held</th></tr>
+      ${[...pod].sort((a,b)=>b.pool.score-a.pool.score).map(o=>`<tr${o.p.id===me.id?' style="font-weight:700"':''}><td>${esc(o.p.name)}</td>
+        <td>${o.pool.empty?'—':`${o.pool.score} (${grade(o.pool.score)})`}</td><td>${o.deck?`${o.deck.score} (${grade(o.deck.score)})`:'—'}</td><td>${o.held}</td></tr>`).join('')}</table></div>
+    <small>These ratings are a rule-of-thumb estimate (rarity, creature stats for their cost, keywords, removal, card draw, curve and mana base). They are not win-rate data, so treat them as a fun guide, not a verdict.</small>
+    <button class="ghost" onclick="closeStats()">Close</button></div>`;
+}
+function renderStats(force){
+  const d=document.getElementById('stats');if(!d)return;
+  const key=X.map(x=>x.id+(x.in_deck?1:0)).join('')+STAB+STAT_LOADING+Object.keys(META).length+P.length;
+  if(!force&&key===statsKey&&d.innerHTML)return;
+  statsKey=key;d.innerHTML=statsHTML();
+}
+async function openStats(){
+  let d=document.getElementById('stats');
+  if(!d){d=document.createElement('div');d.id='stats';d.onclick=e=>{if(e.target===d)closeStats()};document.body.appendChild(d)}
+  d.style.display='flex';STAT_LOADING=true;renderStats(true);
+  await loadMeta(X.map(x=>x.card));
+  STAT_LOADING=false;renderStats(true);
+}
+const closeStats=()=>{document.getElementById('stats').style.display='none'};
+const setStab=t=>{STAB=t;renderStats(true)};
 
 /* ---------- hover / press-and-hold zoom ---------- */
 const zoom=document.createElement('img');zoom.id='zoom';document.body.appendChild(zoom);
